@@ -180,3 +180,4 @@ cython_debug/
 
 dataset/*
 results/*
+benchmark_data/*

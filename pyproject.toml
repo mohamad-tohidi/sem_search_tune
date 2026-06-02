@@ -1,0 +1,15 @@
+[project]
+name = "sem-search-tune"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "scikit-learn",
+    "numpy",
+    "tqdm>=4.67.3",
+    "sentence-transformers>=5.5.1",
+    "datasets>=4.8.5",
+    "qdrant-client>=1.18.0",
+    "accelerate>=1.13.0",
+]

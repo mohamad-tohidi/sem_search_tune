@@ -1,0 +1,23 @@
+model_name: "BAAI/bge-m3"
+train_data: "dataset/train.jsonl"
+eval_data: "dataset/val.jsonl"
+loss: "mnrl"
+batch_size: 2
+
+# TODO: add gradiant acculmilation
+gradiant_accumilation: 1
+epochs: 1
+lr: 2e-5
+max_seq_length: 128
+run_name: "parsa_001"
+output_dir: null
+
+dry_run: true
+dry_run_samples: 64
+dry_run_eval_samples: 16
+
+benchmark:
+  project: "parsa"
+  k: 10
+  query_prefix: "query: "
+  passage_prefix: "passage: "
