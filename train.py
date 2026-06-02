@@ -12,8 +12,11 @@ from sentence_transformers import (
     SentenceTransformer,
     SentenceTransformerTrainingArguments,
     SentenceTransformerTrainer,
-    losses,
 )
+
+from sentence_transformers.sentence_transformer import losses
+
+import plotly.graph_objects as go
 
 from metrics import MetricsCalculator
 
@@ -60,39 +63,15 @@ def _chunk(text: str) -> list[str]:
     return [text]
 
 
-def evaluate_benchmark(config: dict, model_dir: Path) -> Path:
-    benchmark_cfg = config.get("benchmark", {})
+def _eval_model(
+    model,
+    raw_benchmarks: list[dict],
+    raw_docs: list[dict],
+    benchmark_cfg: dict,
+) -> tuple:
     k = benchmark_cfg.get("k", 10)
     query_prefix = benchmark_cfg.get("query_prefix", "")
     passage_prefix = benchmark_cfg.get("passage_prefix", "")
-
-    results_dir = model_dir.parent
-    results_dir.mkdir(parents=True, exist_ok=True)
-
-    model_name = config.get("model_name", "unknown")
-    run_name = config.get("run_name", model_dir.parent.name)
-
-    data_dir = benchmark_cfg.get("data_dir")
-    if not data_dir:
-        print("No benchmark.data_dir in config, skipping evaluation.")
-        return results_dir
-
-    data_dir = Path(data_dir)
-    if not data_dir.exists():
-        print(
-            f"Benchmark data not found at {data_dir}, skipping evaluation."
-        )
-        return results_dir
-
-    with open(data_dir / "benchmark.json") as f:
-        raw_benchmarks = json.load(f)
-    with open(data_dir / "rawdata.json") as f:
-        raw_docs = json.load(f)
-
-    print(f"Loading fine-tuned model from {model_dir}")
-    model = SentenceTransformer(
-        str(model_dir), trust_remote_code=True
-    )
 
     def embed_passage(text: str) -> list[float]:
         return (
@@ -120,7 +99,7 @@ def evaluate_benchmark(config: dict, model_dir: Path) -> Path:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         client = QdrantClient(path=tmpdir)
-        collection_name = f"finetune_{run_name}"
+        collection_name = "eval"
 
         sample_vec = embed_passage(raw_docs[0]["body"])
         vector_size = len(sample_vec)
@@ -161,7 +140,7 @@ def evaluate_benchmark(config: dict, model_dir: Path) -> Path:
         )
 
         calculator = MetricsCalculator()
-        queries_data: list[tuple[list[str], list[str]]] = []
+        queries_data = []
         eval_per_item = []
 
         print("Evaluating benchmark queries...")
@@ -211,11 +190,127 @@ def evaluate_benchmark(config: dict, model_dir: Path) -> Path:
             ),
         }
 
+    return total_eval, eval_per_item, queries_data
+
+
+def plot_benchmark_comparison(
+    base_total: dict,
+    ft_total: dict,
+    results_dir: Path,
+    run_name: str,
+) -> None:
+    base_map = base_total["mean_average_precision"][0]
+    base_mrr = base_total["mean_reciprocal_rank"][0]
+    ft_map = ft_total["mean_average_precision"][0]
+    ft_mrr = ft_total["mean_reciprocal_rank"][0]
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(name="Base Model", x=["MAP", "MRR"], y=[base_map, base_mrr])
+    )
+    fig.add_trace(
+        go.Bar(name="Fine-tuned", x=["MAP", "MRR"], y=[ft_map, ft_mrr])
+    )
+    fig.update_layout(
+        title=f"Benchmark Comparison — {run_name}",
+        barmode="group",
+        template="plotly_white",
+        yaxis_title="Score",
+    )
+    path = results_dir / "benchmark_comparison.html"
+    fig.write_html(str(path))
+    print(f"Benchmark comparison plot saved to {path}")
+
+
+def plot_training_history(trainer, output_dir: Path, run_name: str) -> None:
+    log_history = trainer.state.log_history
+    if not log_history:
+        return
+
+    train_steps = [
+        e["step"] for e in log_history if "loss" in e and "eval_loss" not in e
+    ]
+    train_losses = [
+        e["loss"] for e in log_history if "loss" in e and "eval_loss" not in e
+    ]
+    eval_steps = [e["step"] for e in log_history if "eval_loss" in e]
+    eval_losses = [e["eval_loss"] for e in log_history if "eval_loss" in e]
+
+    if not train_losses and not eval_losses:
+        return
+
+    fig = go.Figure()
+    if train_losses:
+        fig.add_trace(
+            go.Scatter(
+                x=train_steps,
+                y=train_losses,
+                mode="lines",
+                name="Training Loss",
+            )
+        )
+    if eval_losses:
+        fig.add_trace(
+            go.Scatter(
+                x=eval_steps,
+                y=eval_losses,
+                mode="lines+markers",
+                name="Eval Loss",
+            )
+        )
+    fig.update_layout(
+        title=f"Training History — {run_name}",
+        xaxis_title="Step",
+        yaxis_title="Loss",
+        template="plotly_white",
+    )
+    path = output_dir / "training_history.html"
+    fig.write_html(str(path))
+    print(f"Training history plot saved to {path}")
+
+
+def evaluate_benchmark(config: dict, model_dir: Path) -> Path:
+    benchmark_cfg = config.get("benchmark", {})
+
+    results_dir = model_dir.parent
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    model_name = config.get("model_name", "unknown")
+    run_name = config.get("run_name", model_dir.parent.name)
+
+    data_dir = benchmark_cfg.get("data_dir")
+    if not data_dir:
+        print("No benchmark.data_dir in config, skipping evaluation.")
+        return results_dir
+
+    data_dir = Path(data_dir)
+    if not data_dir.exists():
+        print(f"Benchmark data not found at {data_dir}, skipping evaluation.")
+        return results_dir
+
+    with open(data_dir / "benchmark.json") as f:
+        raw_benchmarks = json.load(f)
+    with open(data_dir / "rawdata.json") as f:
+        raw_docs = json.load(f)
+
+    # Evaluate base model
+    print(f"Loading base model: {model_name}")
+    base_model = SentenceTransformer(model_name, trust_remote_code=True)
+    base_total, _, _ = _eval_model(base_model, raw_benchmarks, raw_docs, benchmark_cfg)
+    del base_model
+
+    # Evaluate fine-tuned model
+    print(f"Loading fine-tuned model from {model_dir}")
+    ft_model = SentenceTransformer(str(model_dir), trust_remote_code=True)
+    ft_total, ft_per_item, ft_queries_data = _eval_model(ft_model, raw_benchmarks, raw_docs, benchmark_cfg)
+    del ft_model
+
+    # Save fine-tuned metrics
     metrics = {
         "experiment_name": run_name,
         "description": f"Fine-tuned model: {model_name}",
-        "total_eval": total_eval,
-        "eval_per_item": eval_per_item,
+        "total_eval": ft_total,
+        "eval_per_item": ft_per_item,
     }
     with open(results_dir / "metrics.json", "w") as f:
         json.dump(metrics, f, indent=2)
@@ -223,10 +318,13 @@ def evaluate_benchmark(config: dict, model_dir: Path) -> Path:
     with open(results_dir / "report.md", "w") as f:
         f.write(f"# Benchmark: {run_name}\n\n")
         f.write(f"**Model:** {model_name}\n\n")
-        f.write(
-            f"**Total Score:**\n{json.dumps(total_eval, indent=4)}\n\n"
-        )
+        f.write(f"**Total Score:**\n{json.dumps(ft_total, indent=4)}\n\n")
 
+    # Comparison plot
+    plot_benchmark_comparison(base_total, ft_total, results_dir, run_name)
+
+    # Qualitative samples (from fine-tuned only)
+    k = benchmark_cfg.get("k", 10)
     doc_lookup = {str(d["id"]): d["body"] for d in raw_docs}
     samples = sorted(
         [
@@ -238,16 +336,14 @@ def evaluate_benchmark(config: dict, model_dir: Path) -> Path:
                 "relevant_ids": set(qdata[1]),
             }
             for item, bench, qdata in zip(
-                eval_per_item, raw_benchmarks, queries_data
+                ft_per_item, raw_benchmarks, ft_queries_data
             )
         ],
         key=lambda x: x["score"][0],
         reverse=True,
     )
 
-    with open(
-        results_dir / "qualitative_samples.md", "w", encoding="utf-8"
-    ) as f:
+    with open(results_dir / "qualitative_samples.md", "w", encoding="utf-8") as f:
         f.write(f"# Qualitative Analysis — {run_name}\n\n")
         f.write(f"**Model:** {model_name}\n\n")
         f.write("Samples ranked by NDCG@k.\n\n")
@@ -274,12 +370,8 @@ def evaluate_benchmark(config: dict, model_dir: Path) -> Path:
                 for rank, doc_id in enumerate(rids[:10], 1):
                     status = "✅" if doc_id in rel_set else "❌"
                     snippet = (doc_lookup.get(doc_id, "") or "")[:200]
-                    f.write(
-                        f"{rank:2d}. `{doc_id}` {status}  {snippet}\n"
-                    )
-                f.write(
-                    f"\n**Ground truth:** {sorted(rel_set)}\n\n---\n\n"
-                )
+                    f.write(f"{rank:2d}. `{doc_id}` {status}  {snippet}\n")
+                f.write(f"\n**Ground truth:** {sorted(rel_set)}\n\n---\n\n")
 
     print(f"Benchmark results saved to {results_dir}")
     return results_dir
@@ -334,6 +426,8 @@ def main():
         loss=loss,
     )
     trainer.train()
+
+    plot_training_history(trainer, output_dir, output_dir.name)
 
     final_dir = output_dir / "final"
     model.save_pretrained(str(final_dir))
