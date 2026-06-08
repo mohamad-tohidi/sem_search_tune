@@ -2,7 +2,7 @@ model_name: "BAAI/bge-m3"
 train_data: "data/train.jsonl"
 eval_data: "data/val.jsonl"
 loss: "mnrl"
-batch_size: 2
+batch_size: 6
 
 # TODO: add gradiant acculmilation
 gradiant_accumilation: 2
