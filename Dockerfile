@@ -6,6 +6,6 @@ RUN apt-get update && apt-get install -y curl vim git && rm -rf /var/lib/apt/lis
 
 COPY . /workspace
 WORKDIR /workspace
-RUN uv run sync
+RUN uv sync
 
 CMD ["bash"]
