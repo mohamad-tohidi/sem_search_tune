@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y curl vim git && rm -rf /var/lib/apt/lis
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 COPY . /workspace
-RUN cd workspace && uv run sync
+WORKDIR /workspace
+RUN uv run sync
 
 CMD ["bash"]
