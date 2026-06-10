@@ -2,13 +2,10 @@ FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
 
 WORKDIR /workspace
 
-RUN apt-get update && apt-get install -y python3 python3-pip vim git && rm -rf /var/lib/apt/lists/*
-
-RUN pip3 install --upgrade pip && \
-    pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 && \
-    pip3 install sentence-transformers datasets accelerate plotly tqdm scikit-learn numpy qdrant-client 
+RUN apt-get update && apt-get install -y curl vim git && rm -rf /var/lib/apt/lists/*
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 COPY . /workspace
-
+RUN cd workspace && uv run sync
 
 CMD ["bash"]
