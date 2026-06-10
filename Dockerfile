@@ -6,8 +6,9 @@ RUN apt-get update && apt-get install -y python3 python3-pip git && rm -rf /var/
 
 RUN pip3 install --upgrade pip && \
     pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 && \
-    pip3 install sentence-transformers datasets accelerate
+    pip3 install sentence-transformers datasets accelerate plotly tqdm scikit-learn numpy qdrant-client 
 
 COPY . /workspace
+
 
 CMD ["bash"]
